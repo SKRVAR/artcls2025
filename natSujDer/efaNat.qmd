@@ -1,0 +1,168 @@
+---
+title: "Análisis Factorial Exploratorio: Escalas de Perspectiva Ambiental"
+author: "Oscar Sedano Vargas"
+format:
+  html:
+    toc: true
+    toc-position: left
+    toc-depth: 2
+    toc_expand: 2
+    html-math-method: katex
+    css: styles.css
+---
+
+## Introducción
+
+Este documento detalla el proceso de Análisis Factorial Exploratorio (AFE) para validar un instrumento diseñado para medir las perspectivas **biocéntrica** y **antropocéntrica**. El objetivo es explorar la estructura subyacente del instrumento, depurar las escalas y confirmar su unidimensionalidad.
+
+---
+
+### **Paso 0: Cargar Librerías**
+
+Primero, cargamos todos los paquetes de R que necesitaremos para el análisis. `psych` es para el análisis factorial, `EFAtools` para el análisis paralelo, y `dplyr` para la manipulación de datos.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(psych)      # Para EFA con fa()
+library(EFAtools)   # Para Análisis Paralelo
+library(dplyr)      # Para manipulación de datos con %>%
+```
+
+---
+
+## **Parte 1: Análisis del Instrumento Global**
+
+El primer gran paso es analizar todos los ítems juntos para probar la hipótesis principal: que el instrumento mide dos grandes factores (Biocentrismo y Antropocentrismo).
+
+### **Paso 1.1: Preparación de Datos**
+
+Cargamos la base de datos final desde el archivo `bdNat.Rdata`. Luego, la depuramos, eliminando los ítems que en análisis preliminares demostraron ser problemáticos y las columnas que no son ítems de la escala Likert.
+
+```{r}
+#| label: data-prep
+
+# Cargamos el objeto 'bd' directamente desde el archivo .Rdata
+# Asegúrate de que el archivo "bdNat.Rdata" esté en el mismo directorio de trabajo.
+setwd("D:/IntellijIDEA_Projects/artcls2025/natSujDer")
+load("bdNat.Rdata")
+
+# Creamos el dataframe para el análisis (dbEfa)
+# 1. Tomamos la base original (`bd`)
+# 2. Eliminamos los ítems problemáticos identificados previamente.
+# 3. Eliminamos columnas de identificación o demográficas.
+dbEfa <- bd %>%
+  select(-c(q1_bf_ant, q3_al_ant, q15_al_ant, q17_td_ant, q25_al_bio, q28_rep_bio, q16_bf_bio)) %>%
+  select(-(id:Condition))
+
+# Vemos las dimensiones del dataframe limpio
+# dim(dbEfa)
+```
+
+### **Paso 1.2: Decidir el Número de Factores**
+
+Antes de correr el AFE, usamos un método empírico para determinar el número óptimo de factores a extraer. El **Análisis Paralelo** es el método más recomendado. Compara los autovalores de nuestros datos con los de datos aleatorios para sugerir cuántos factores son estadísticamente significativos.
+
+```{r}
+#| label: parallel-main
+
+# Ejecutamos el Análisis Paralelo sobre el conjunto completo de ítems.
+# Esto nos ayuda a justificar nuestra decisión teórica de 2 factores.
+# Damos prioridad al resultado de "PCA-determined eigenvalues".
+EFAtools::PARALLEL(dbEfa)
+```
+
+### **Paso 1.3: Ejecutar el AFE Principal (2 Factores)**
+
+Con la justificación teórica y empírica, procedemos a ejecutar el AFE principal forzando una solución de 2 factores.
+
+* `nfactors = 2`: Le ordenamos al modelo que busque dos factores.
+* `cor = "poly"`: Usamos correlaciones policóricas, el método correcto para escalas tipo Likert (ordinales).
+* `fm = "pa"`: Usamos "Principal Axis Factoring", un método de extracción robusto que no asume normalidad.
+* `rotate = "oblimin"`: Usamos una rotación oblicua, que permite que los dos factores estén correlacionados.
+
+```{r}
+#| label: efa-main
+#| warning: true
+#| message: true
+
+# Ejecutamos el modelo.
+# Es importante mostrar las advertencias (warnings) aquí,
+# ya que nos recuerdan la inestabilidad de la matriz al analizar todos los ítems juntos.
+modEfa <- psych::fa(
+  r = dbEfa,
+  nfactors = 2,
+  cor = "poly",
+  fm = "pa",
+  rotate = "oblimin"
+)
+
+# Imprimimos los resultados.
+# cut = 0.4 -> Oculta cargas factoriales bajas para una mejor lectura.
+# sort = TRUE -> Ordena los ítems por su carga factorial.
+print(modEfa, cut = 0.4, sort = TRUE)
+```
+
+---
+
+## **Parte 2: Análisis Jerárquico de las Subescalas**
+
+Una vez validada la estructura de dos grandes factores, "hacemos zoom" en cada uno para confirmar su unidimensionalidad.
+
+### **Paso 2.1: Separar las Subescalas**
+
+Creamos dos nuevos dataframes, uno para cada constructo, usando los ítems finales depurados.
+
+```{r}
+#| label: split-data
+
+# Seleccionamos las columnas que contienen "bio" para la escala Biocéntrica
+bio <- dbEfa %>%
+  select(contains("bio"))
+
+# Seleccionamos las columnas que contienen "ant" para la escala Antropocéntrica
+ant <- dbEfa %>%
+    select(contains("ant"))
+```
+
+### **Paso 2.2: Decidir Factores para Cada Subescala**
+
+Repetimos el Análisis Paralelo, esta vez por separado para cada subescala. Esto nos dirá si cada una de ellas es, en efecto, unidimensional.
+
+```{r}
+#| label: parallel-subscales
+
+# Análisis Paralelo para la subescala Biocéntrica
+EFAtools::PARALLEL(bio)
+
+# Análisis Paralelo para la subescala Antropocéntrica
+EFAtools::PARALLEL(ant)
+```
+*Nota: En ambos casos, el método más fiable (PCA-determined) sugiere **1 solo factor**, lo que nos da luz verde para probar la unidimensionalidad.*
+
+### **Paso 2.3: Ejecutar los AFE Finales (1 Factor)**
+
+Finalmente, corremos un AFE para cada subescala forzando una solución de 1 factor. Esto nos permite ver las cargas factoriales de cada ítem en su constructo y evaluar la coherencia interna de cada escala final.
+
+```{r}
+#| label: efa-final
+
+# AFE para la subescala Biocéntrica (confirmando 1 factor)
+modelo_bio_final <- fa(
+  r = bio,
+  nfactors = 1,
+  cor = "poly",
+  fm = "pa"
+)
+print(modelo_bio_final)
+
+# AFE para la subescala Antropocéntrica (confirmando 1 factor)
+modelo_ant_final <- fa(
+  r = ant,
+  nfactors = 1,
+  cor = "poly",
+  fm = "pa"
+)
+print(modelo_ant_final)

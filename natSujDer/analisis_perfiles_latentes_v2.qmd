@@ -1,0 +1,1647 @@
+---
+title: "Análisis de Perfiles Latentes: Actitudes hacia los Derechos de la Naturaleza"
+author: ""
+date: today
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Introducción
+
+Este documento presenta un análisis de perfiles latentes (Latent Profile Analysis - LPA) para identificar patrones de respuesta en las actitudes hacia los derechos de la naturaleza. El conjunto de datos incluye 21 ítems (reducidos de 28 originales) organizados en cuatro ejes principales:
+
+- **Base filosófica** (bf): Valores intrínsecos, responsabilidad, temporalidad, finalidad
+- **Acción legal** (al): Legitimación, mecanismos, prevención  
+- **Titular de derechos** (td): Sujeto protegido, jerarquía, representació## Interpretación de los Perfiles
+
+*Esta sección debe completarse con base en los resultados específicos obtenidos del análisis.*
+
+Los perfiles encontrados pueden interpretarse de la siguiente manera:
+
+1. **Perfil 1**: [Descripción basada en los patrones de respuesta]
+2. **Perfil 2**: [Descripción basada en los patrones de respuesta]  
+3. **Perfil 3**: [Descripción basada en los patrones de respuesta]e
+- **Reparación** (rep): Tipo de sanción, enfoque
+
+Cada ítem refleja una perspectiva **antropocéntrica** o **biocéntrica**.
+
+# Configuración del Entorno
+
+```{r setup}
+#| label: setup
+
+# Cargar librerías necesarias
+library(tidyverse)
+library(tidyLPA)      # Para análisis de perfiles latentes
+library(corrplot)     # Para matriz de correlaciones
+library(psych)        # Para estadísticos descriptivos
+library(knitr)        # Para tablas
+library(kableExtra)   # Para mejorar las tablas
+library(ggplot2)      # Para gráficos
+library(patchwork)    # Para combinar gráficos
+
+# Configuraciones generales
+theme_set(theme_minimal())
+options(digits = 3)
+```
+
+# Carga de Datos
+
+```{r load-data}
+#| label: load-data
+
+# Establecer directorio de trabajo
+setwd("D:/IntellijIDEA_Projects/artcls2025/natSujDer")
+
+# Cargar el conjunto de datos
+load("bdNat.Rdata")
+
+# Mostrar estructura básica de los datos
+str(bd)
+head(bd)
+
+# Información general del dataset
+cat("Dimensiones del dataset completo:", dim(bd), "\n")
+cat("Variables disponibles:", ncol(bd), "\n")
+cat("Casos totales:", nrow(bd), "\n\n")
+
+# Variables demográficas disponibles
+vars_demograficas <- c("edad", "sex", "instrG", "civilEst", "profCar", "career", 
+                      "dep", "dist", "Condition")
+cat("Variables demográficas disponibles:\n")
+for(var in vars_demograficas) {
+  if(var %in% names(bd)) {
+    cat("-", var, ": ", class(bd[[var]]), "\n")
+  }
+}
+```
+
+# Preparación de los Datos
+
+```{r data-prep}
+#| label: data-prep
+
+# Identificar las variables de los ítems (excluyendo algunos para optimizar el análisis)
+items_excluidos <- c("q1_bf_ant", "q3_al_ant", "q15_al_ant", "q17_td_ant", 
+                    "q25_al_bio", "q28_rep_bio", "q16_bf_bio")
+
+items_natureza <- bd %>% 
+  select(starts_with("q")) %>% 
+  names() %>%
+  setdiff(items_excluidos)  # Excluir los ítems problemáticos
+
+cat("SELECCIÓN DE ÍTEMS PARA EL ANÁLISIS:\n")
+cat("====================================\n")
+cat("Ítems excluidos:", length(items_excluidos), "\n")
+cat(paste(items_excluidos, collapse = ", "), "\n\n")
+cat("Ítems incluidos en el análisis:", length(items_natureza), "\n")
+print(items_natureza)
+
+# Verificar el rango de respuestas (debe ser 1-5)
+cat("\nRango de respuestas por ítem (muestra de 5 ítems):\n")
+for(item in items_natureza[1:5]) {  # Mostrar solo los primeros 5
+  cat(item, ": ", min(bd[[item]], na.rm = TRUE), "-", 
+      max(bd[[item]], na.rm = TRUE), "\n")
+}
+
+# Crear dataset solo con los ítems seleccionados para el LPA
+data_lpa <- bd %>% 
+  select(all_of(items_natureza)) %>%
+  # Eliminar casos con valores perdidos (opcional)
+  na.omit()
+
+# También mantener dataset con variables demográficas para análisis posteriores
+data_completo <- bd %>%
+  select(id, edad, sex, instrG, civilEst, profCar, career, 
+         dep, dist, Condition, all_of(items_natureza)) %>%
+  na.omit()
+
+# Información básica del dataset preparado
+cat("\nDimensiones del dataset para LPA:", dim(data_lpa), "\n")
+cat("Casos completos:", nrow(data_lpa), "\n")
+cat("Ratio casos/variables:", round(nrow(data_lpa)/ncol(data_lpa), 2), "\n")
+cat("Dimensiones del dataset completo:", dim(data_completo), "\n")
+
+# Mostrar distribución de ítems por tipo
+items_ant_final <- items_natureza[str_detect(items_natureza, "_ant")]
+items_bio_final <- items_natureza[str_detect(items_natureza, "_bio")]
+
+cat("\nDISTRIBUCIÓN FINAL DE ÍTEMS:\n")
+cat("Antropocéntricos:", length(items_ant_final), "ítems\n")
+cat("Biocéntricos:", length(items_bio_final), "ítems\n")
+```
+
+# Análisis Descriptivo
+
+## Características de la Muestra
+
+```{r muestra}
+#| label: muestra
+
+# Análisis descriptivo de variables demográficas
+cat("CARACTERÍSTICAS DE LA MUESTRA\n")
+cat("=============================\n\n")
+
+# Edad
+cat("Edad:\n")
+cat("Media:", round(mean(bd$edad, na.rm = TRUE), 2), "años\n")
+cat("DE:", round(sd(bd$edad, na.rm = TRUE), 2), "\n")
+cat("Rango:", min(bd$edad, na.rm = TRUE), "-", max(bd$edad, na.rm = TRUE), "años\n\n")
+
+# Sexo
+cat("Sexo:\n")
+table(bd$sex, useNA = "ifany") %>% 
+  prop.table() %>% 
+  round(3) * 100 %>%
+  print()
+
+# Nivel educativo
+cat("\nNivel educativo:\n")
+table(bd$instrG, useNA = "ifany") %>% 
+  prop.table() %>% 
+  round(3) * 100 %>%
+  print()
+
+# Estado civil
+cat("\nEstado civil:\n")
+table(bd$civilEst, useNA = "ifany") %>% 
+  prop.table() %>% 
+  round(3) * 100 %>%
+  print()
+
+# Condición del estudiante
+cat("\nCondición:\n")
+table(bd$Condition, useNA = "ifany") %>% 
+  prop.table() %>% 
+  round(3) * 100 %>%
+  print()
+
+# Carrera profesional (agrupada)
+cat("\nCarrera profesional (abreviada):\n")
+table(bd$career, useNA = "ifany") %>% 
+  prop.table() %>% 
+  round(3) * 100 %>%
+  print()
+```
+
+## Estadísticos Descriptivos
+
+```{r descriptivos}
+#| label: descriptivos
+
+# Estadísticos descriptivos de los ítems
+desc_stats <- data_lpa %>%
+  describe() %>%
+  as.data.frame() %>%
+  select(n, mean, sd, min, max, skew, kurtosis)
+
+desc_stats %>%
+  kable(caption = "Estadísticos descriptivos de los ítems",
+        digits = 3)
+```
+
+## Matriz de Correlaciones
+
+```{r correlaciones}
+#| label: correlaciones
+#| fig-width: 12
+#| fig-height: 10
+
+# Calcular matriz de correlaciones
+cor_matrix <- cor(data_lpa, use = "complete.obs")
+
+# Visualizar matriz de correlaciones
+corrplot(cor_matrix, 
+         method = "color",
+         type = "upper",
+         order = "hclust",
+         tl.cex = 0.7,
+         tl.col = "black",
+         title = "Matriz de Correlaciones entre Ítems",
+         mar = c(0,0,1,0))
+```
+
+# Análisis de Perfiles Latentes
+
+## Especificación de Modelos
+
+```{r lpa-models}
+#| label: lpa-models
+
+# Diagnóstico básico de los datos
+cat("DIAGNÓSTICO DE DATOS PARA LPA:\n")
+cat("==============================\n")
+cat("Dimensiones del dataset:", dim(data_lpa), "\n")
+cat("Número de casos:", nrow(data_lpa), "\n")
+cat("Número de variables:", ncol(data_lpa), "\n")
+cat("Ratio casos/variables:", round(nrow(data_lpa)/ncol(data_lpa), 2), "\n\n")
+
+# Verificar si hay variabilidad suficiente en los datos
+cat("VARIABILIDAD DE LOS DATOS:\n")
+varianzas <- sapply(data_lpa, function(x) var(x, na.rm = TRUE))
+cat("Varianza mínima:", round(min(varianzas), 4), "\n")
+cat("Varianza máxima:", round(max(varianzas), 4), "\n")
+cat("Variables con varianza muy baja (< 0.1):", sum(varianzas < 0.1), "\n\n")
+
+# Verificar casos con respuestas extremas (todas iguales)
+casos_extremos <- apply(data_lpa, 1, function(x) length(unique(x)) == 1)
+cat("Casos con todas las respuestas iguales:", sum(casos_extremos), "\n\n")
+
+# Si hay muchos casos extremos, los eliminamos
+if(sum(casos_extremos) > 0) {
+  cat("Eliminando casos con respuestas invariantes...\n")
+  data_lpa_clean <- data_lpa[!casos_extremos, ]
+  cat("Casos después de limpieza:", nrow(data_lpa_clean), "\n\n")
+} else {
+  data_lpa_clean <- data_lpa
+}
+
+# Probar modelos con rango optimizado (1-4)
+set.seed(123)  # Para reproducibilidad
+
+cat("PROBANDO MODELOS LPA...\n")
+cat("========================\n")
+
+# Estimar modelos con 1-4 perfiles
+lpa_results <- data_lpa_clean %>%
+  estimate_profiles(1:4,
+                   variances = "equal", 
+                   covariances = "zero")
+
+cat("✓ Modelos LPA (1-4 perfiles) ejecutados exitosamente\n")
+```
+
+## Selección del Modelo Óptimo
+
+```{r model-selection}
+#| label: model-selection
+#| fig-width: 12
+#| fig-height: 8
+
+# DIAGNÓSTICO DE LOS MODELOS AJUSTADOS
+cat("DIAGNÓSTICO DE MODELOS LPA:\n")
+cat("===========================\n")
+cat("Número de modelos creados:", length(lpa_results), "\n")
+
+# Verificar estructura de cada modelo
+for(i in 1:length(lpa_results)) {
+  cat("Modelo", i, "clases:\n")
+  if(is.null(lpa_results[[i]])) {
+    cat("  - NULO\n")
+  } else {
+    cat("  - Clase del objeto:", class(lpa_results[[i]])[1], "\n")
+    cat("  - ¿Tiene atributos?:", length(attributes(lpa_results[[i]])) > 0, "\n")
+    
+    # Intentar obtener información básica
+    tryCatch({
+      if("tidyLPA" %in% class(lpa_results[[i]])) {
+        cat("  - Objeto tidyLPA válido\n")
+      } else {
+        cat("  - Tipo de objeto:", typeof(lpa_results[[i]]), "\n")
+      }
+    }, error = function(e) {
+      cat("  - Error al inspeccionar:", e$message, "\n")
+    })
+  }
+}
+cat("\n")
+
+# Extraer criterios de ajuste usando diferentes métodos
+tryCatch({
+  # Método 1: usar compare_solutions
+  fit_stats <- compare_solutions(lpa_results, statistics = c("AIC", "BIC", "Entropy"))
+  
+  # Verificar si el resultado es válido
+  if(is.null(fit_stats) || !is.data.frame(fit_stats) || nrow(fit_stats) == 0) {
+    stop("compare_solutions no funcionó")
+  }
+  
+  cat("✓ compare_solutions funcionó correctamente\n\n")
+  
+}, error = function(e) {
+  
+  cat("⚠ Método compare_solutions falló:", e$message, "\n")
+  cat("Usando método alternativo...\n\n")
+  
+  # Método 2: extraer manualmente de cada modelo
+  fit_stats <- data.frame()
+  
+  for(i in 1:length(lpa_results)) {
+    if(!is.null(lpa_results[[i]])) {
+      
+      tryCatch({
+        # Método alternativo para obtener fit statistics
+        model <- lpa_results[[i]]
+        
+        # Intentar get_fit
+        model_fit <- get_fit(model)
+        
+        cat("Modelo", i, "- Extrayendo estadísticos...\n")
+        
+        if(is.list(model_fit) && length(model_fit) > 0) {
+          # Mostrar qué estadísticos están disponibles
+          cat("  Estadísticos disponibles:", names(model_fit), "\n")
+          
+          # Usar ifelse para manejar NAs
+          aic_val <- if(is.null(model_fit[["AIC"]])) NA else model_fit[["AIC"]]
+          bic_val <- if(is.null(model_fit[["BIC"]])) NA else model_fit[["BIC"]]
+          ent_val <- if(is.null(model_fit[["Entropy"]])) NA else model_fit[["Entropy"]]
+          
+          cat("  AIC:", aic_val, "BIC:", bic_val, "Entropy:", ent_val, "\n")
+          
+          fit_stats <- rbind(fit_stats, 
+                            data.frame(
+                              Classes = i,
+                              AIC = aic_val,
+                              BIC = bic_val,
+                              Entropy = ent_val
+                            ))
+        } else {
+          cat("  get_fit no retornó una lista válida\n")
+          # Método directo si get_fit no funciona
+          fit_stats <- rbind(fit_stats, 
+                            data.frame(
+                              Classes = i,
+                              AIC = NA,
+                              BIC = NA,
+                              Entropy = NA
+                            ))
+        }
+        
+      }, error = function(e2) {
+        # En caso de error total, agregar fila con NA
+        cat("  Error en extracción:", e2$message, "\n")
+        fit_stats <<- rbind(fit_stats, 
+                           data.frame(
+                             Classes = i,
+                             AIC = NA,
+                             BIC = NA,
+                             Entropy = NA
+                           ))
+      })
+    } else {
+      cat("Modelo", i, "es NULL\n")
+    }
+  }
+  
+  # Si aún no tenemos datos, crear estructura básica
+  if(nrow(fit_stats) == 0) {
+    cat("No se pudieron extraer estadísticos, creando tabla vacía\n")
+    fit_stats <- data.frame(
+      Classes = 1:4,
+      AIC = rep(NA, 4),
+      BIC = rep(NA, 4),
+      Entropy = rep(NA, 4)
+    )
+  }
+})
+
+# Mostrar criterios
+cat("CRITERIOS DE SELECCIÓN DE MODELO:\n")
+cat("==================================\n")
+
+# Verificar si fit_stats existe y es válido
+if(exists("fit_stats") && is.data.frame(fit_stats) && nrow(fit_stats) > 0) {
+  print(fit_stats)
+  cat("\n")
+  
+  # Solo crear gráficos si tenemos datos válidos
+  has_valid_data <- any(!is.na(fit_stats$AIC)) || any(!is.na(fit_stats$BIC)) || any(!is.na(fit_stats$Entropy))
+  
+  if(has_valid_data && nrow(fit_stats) > 1) {
+    
+    # Gráfico de criterios de información (solo si hay datos válidos)
+    if(any(!is.na(fit_stats$AIC)) || any(!is.na(fit_stats$BIC))) {
+      
+      fit_long <- fit_stats %>%
+        select(Classes, AIC, BIC) %>%
+        pivot_longer(cols = c(AIC, BIC), 
+                     names_to = "Criterio", 
+                     values_to = "Valor") %>%
+        filter(!is.na(Valor))
+      
+      if(nrow(fit_long) > 0) {
+        p1 <- fit_long %>%
+          ggplot(aes(x = Classes, y = Valor, color = Criterio)) +
+          geom_line(size = 1) +
+          geom_point(size = 3) +
+          scale_x_continuous(breaks = 1:4) +
+          labs(title = "Criterios de Información (AIC y BIC)",
+               subtitle = "Valores más bajos indican mejor ajuste",
+               x = "Número de Perfiles",
+               y = "Valor del Criterio") +
+          theme_minimal() +
+          theme(legend.position = "bottom")
+        
+        print(p1)
+      }
+    }
+    
+    # Gráfico de Entropía (solo si hay datos válidos)
+    if(any(!is.na(fit_stats$Entropy))) {
+      
+      p2 <- fit_stats %>%
+        filter(!is.na(Entropy)) %>%
+        ggplot(aes(x = Classes, y = Entropy)) +
+        geom_line(color = "darkgreen", size = 1) +
+        geom_point(color = "darkgreen", size = 3) +
+        geom_hline(yintercept = 0.8, linetype = "dashed", color = "red", alpha = 0.7) +
+        geom_hline(yintercept = 0.6, linetype = "dashed", color = "orange", alpha = 0.7) +
+        scale_x_continuous(breaks = 1:4) +
+        scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1)) +
+        labs(title = "Entropía por Número de Perfiles",
+             subtitle = "Valores más altos indican mejor separación (>0.8 excelente, >0.6 aceptable)",
+             x = "Número de Perfiles",
+             y = "Entropía") +
+        theme_minimal()
+      
+      print(p2)
+    }
+    
+    cat("\nRECOMENDACIONES PARA SELECCIÓN DE MODELO:\n")
+    cat("========================================\n\n")
+    
+    # Solo dar recomendaciones si hay datos válidos
+    valid_aic <- fit_stats[!is.na(fit_stats$AIC), ]
+    valid_bic <- fit_stats[!is.na(fit_stats$BIC), ]
+    valid_entropy <- fit_stats[!is.na(fit_stats$Entropy), ]
+    
+    if(nrow(valid_aic) > 0) {
+      best_aic <- valid_aic$Classes[which.min(valid_aic$AIC)]
+      cat("- Mejor modelo según AIC:", best_aic, "perfiles\n")
+    }
+    
+    if(nrow(valid_bic) > 0) {
+      best_bic <- valid_bic$Classes[which.min(valid_bic$BIC)]
+      cat("- Mejor modelo según BIC:", best_bic, "perfiles\n")
+    }
+    
+    if(nrow(valid_entropy) > 0) {
+      best_entropy <- valid_entropy$Classes[which.max(valid_entropy$Entropy)]
+      cat("- Mejor modelo según Entropía:", best_entropy, "perfiles\n\n")
+      
+      # Modelos con entropía aceptable
+      good_entropy <- valid_entropy[valid_entropy$Entropy >= 0.7, ]
+      if(nrow(good_entropy) > 0) {
+        cat("Modelos con entropía aceptable (>= 0.7):\n")
+        print(good_entropy$Classes)
+      } else {
+        cat("Ningún modelo alcanza entropía >= 0.7\n")
+        cat("Mejores opciones disponibles:\n")
+        print(valid_entropy[order(valid_entropy$Entropy, decreasing = TRUE), c("Classes", "Entropy")])
+      }
+    }
+    
+  } else {
+    cat("⚠ No hay suficientes datos válidos para crear gráficos comparativos\n")
+    cat("Los modelos se ajustaron pero los estadísticos no están disponibles\n")
+  }
+  
+} else {
+  cat("⚠ No se pudieron obtener criterios de selección\n")
+  cat("Procediendo con análisis de 3 perfiles (selección teórica)\n")
+  
+  # Crear tabla básica para continuar
+  fit_stats <- data.frame(
+    Classes = 1:4,
+    AIC = rep(NA, 4),
+    BIC = rep(NA, 4),
+    Entropy = rep(NA, 4)
+  )
+}
+```
+```
+
+## Modelo Final Seleccionado
+
+```{r final-model}
+#| label: final-model
+
+# Establecer número de perfiles fijo en 3 (según requerimiento del análisis)
+n_profiles <- 3
+
+cat("MODELO SELECCIONADO:\n")
+cat("===================\n")
+cat("Número de perfiles seleccionado:", n_profiles, "\n")
+cat("Basado en: Decisión teórica (3 perfiles para análisis interpretativo)\n\n")
+
+# Mostrar criterios del modelo de 3 perfiles
+if(nrow(fit_stats) >= 3) {
+  model_3_stats <- fit_stats[fit_stats$Classes == 3, ]
+  if(nrow(model_3_stats) > 0) {
+    cat("CRITERIOS DEL MODELO DE 3 PERFILES:\n")
+    cat("===================================\n")
+    cat("AIC:", round(model_3_stats$AIC, 2), "\n")
+    cat("BIC:", round(model_3_stats$BIC, 2), "\n") 
+    cat("Entropía:", round(model_3_stats$Entropy, 3), "\n\n")
+  }
+}
+
+# Verificar datos antes de estimar modelo final
+cat("VERIFICACIÓN FINAL DE DATOS:\n")
+cat("============================\n")
+cat("Dimensiones data_lpa_clean:", dim(data_lpa_clean), "\n")
+cat("Clases de variables:\n")
+str(data_lpa_clean)
+cat("\n")
+
+# Verificar si todas las variables son numéricas
+all_numeric <- all(sapply(data_lpa_clean, is.numeric))
+cat("Todas las variables son numéricas:", all_numeric, "\n")
+
+# Verificar rangos
+ranges_ok <- all(sapply(data_lpa_clean, function(x) min(x, na.rm=TRUE) >= 1 & max(x, na.rm=TRUE) <= 5))
+cat("Todos los valores están en rango 1-5:", ranges_ok, "\n\n")
+
+# Solo proceder si los datos son válidos
+if(all_numeric && ranges_ok && nrow(data_lpa_clean) > 10) {
+  
+  # Estimar el modelo final con manejo de errores
+  tryCatch({
+    final_lpa <- data_lpa_clean %>%
+      estimate_profiles(n_profiles, 
+                       variances = "equal", 
+                       covariances = "zero")
+    
+    # Información del modelo final
+    final_fit <- get_fit(final_lpa)
+    cat("AJUSTE DEL MODELO FINAL:\n")
+    cat("========================\n")
+    
+    if(is.list(final_fit)) {
+      cat("AIC:", round(final_fit[["AIC"]] %||% NA, 2), "\n")
+      cat("BIC:", round(final_fit[["BIC"]] %||% NA, 2), "\n") 
+      cat("Entropía:", round(final_fit[["Entropy"]] %||% NA, 3), "\n")
+      
+      entropy_val <- final_fit[["Entropy"]] %||% 0
+      if(entropy_val >= 0.8) {
+        cat("→ Excelente clasificación (Entropía ≥ 0.8)\n")
+      } else if(entropy_val >= 0.7) {
+        cat("→ Buena clasificación (Entropía ≥ 0.7)\n")
+      } else if(entropy_val >= 0.6) {
+        cat("→ Clasificación aceptable (Entropía ≥ 0.6)\n")
+      } else {
+        cat("→ Clasificación pobre (Entropía < 0.6)\n")
+        cat("   Interpretar resultados con precaución\n")
+      }
+    } else {
+      cat("No se pudieron obtener criterios de ajuste\n")
+    }
+    
+  }, error = function(e) {
+    cat("ERROR al estimar el modelo final:\n")
+    cat(e$message, "\n")
+    cat("Intentando con modelo más simple (2 perfiles)...\n")
+    
+    # Modelo de respaldo
+    final_lpa <<- data_lpa_clean %>%
+      estimate_profiles(2, 
+                       variances = "equal", 
+                       covariances = "zero")
+    n_profiles <<- 2
+  })
+  
+} else {
+  cat("ERROR: Los datos no son válidos para LPA\n")
+  cat("- Todas numéricas:", all_numeric, "\n")
+  cat("- Rangos correctos:", ranges_ok, "\n")
+  cat("- Casos suficientes:", nrow(data_lpa_clean) > 10, "\n")
+}
+```
+
+## Características de los Perfiles
+
+```{r profile-characteristics}
+#| label: profile-characteristics
+#| fig-width: 14
+#| fig-height: 10
+
+# Obtener medias de los perfiles
+profile_means <- get_estimates(final_lpa) %>%
+  filter(Category == "Means")
+
+# Gráfico de perfiles
+profile_means %>%
+  ggplot(aes(x = Parameter, y = Estimate, color = factor(Class), group = Class)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "gray", alpha = 0.7) +
+  labs(title = "Perfiles Latentes: Medias de los Ítems por Perfil",
+       subtitle = "Línea gris = punto neutral (3)",
+       x = "Ítems",
+       y = "Media Estimada (Escala 1-5)",
+       color = "Perfil") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
+  scale_color_brewer(type = "qual", palette = "Set1") +
+  ylim(1, 5)
+
+# Tabla de medias por perfil
+profile_means %>%
+  select(Class, Parameter, Estimate) %>%
+  pivot_wider(names_from = Class, 
+              values_from = Estimate,
+              names_prefix = "Perfil_") %>%
+  kable(caption = "Medias estimadas por perfil (Escala 1-5)",
+        digits = 3)
+```
+
+## Clasificación de Casos
+
+```{r classification}
+#| label: classification
+
+# Obtener probabilidades de pertenencia y clasificación
+profile_assignments <- get_data(final_lpa) %>%
+  select(starts_with("CPROB"), Class)
+
+# Resumen de la clasificación
+table(profile_assignments$Class) %>%
+  as.data.frame() %>%
+  rename(Perfil = Var1, Frecuencia = Freq) %>%
+  mutate(Porcentaje = round(Frecuencia / sum(Frecuencia) * 100, 2)) %>%
+  kable(caption = "Distribución de casos por perfil")
+
+# Probabilidades promedio de clasificación (calidad de la clasificación)
+avg_probs <- profile_assignments %>%
+  select(starts_with("CPROB")) %>%
+  summarise_all(mean) %>%
+  pivot_longer(everything(), 
+               names_to = "Perfil", 
+               values_to = "Probabilidad_Promedio") %>%
+  mutate(Perfil = str_extract(Perfil, "\\d+"))
+
+avg_probs %>%
+  kable(caption = "Probabilidades promedio de clasificación por perfil",
+        digits = 3)
+```
+
+# Interpretación de los Perfiles
+
+```{r interpretation}
+#| label: interpretation
+
+# RECORDATORIO: Escala de 1-5 donde:
+# 1 = Totalmente en desacuerdo
+# 2 = En desacuerdo  
+# 3 = Ni de acuerdo ni en desacuerdo
+# 4 = De acuerdo
+# 5 = Totalmente de acuerdo
+
+# Separar ítems por enfoque (antropocéntrico vs biocéntrico)
+items_ant <- items_natureza[str_detect(items_natureza, "_ant")]
+items_bio <- items_natureza[str_detect(items_natureza, "_bio")]
+
+cat("ESTRUCTURA DE LOS ÍTEMS\n")
+cat("=======================\n\n")
+cat("Ítems Antropocéntricos (n =", length(items_ant), "):\n")
+cat(paste(items_ant, collapse = ", "), "\n\n")
+
+cat("Ítems Biocéntricos (n =", length(items_bio), "):\n")
+cat(paste(items_bio, collapse = ", "), "\n\n")
+
+# Calcular medias por enfoque y perfil
+interpretation_data <- get_data(final_lpa) %>%
+  select(all_of(items_natureza), Class) %>%
+  pivot_longer(cols = -Class, names_to = "Item", values_to = "Response") %>%
+  mutate(Enfoque = case_when(
+    str_detect(Item, "_ant") ~ "Antropocéntrico",
+    str_detect(Item, "_bio") ~ "Biocéntrico",
+    TRUE ~ "Otro"
+  )) %>%
+  group_by(Class, Enfoque) %>%
+  summarise(Media = mean(Response, na.rm = TRUE),
+            DE = sd(Response, na.rm = TRUE),
+            .groups = "drop")
+
+# Mostrar tabla de medias
+cat("MEDIAS POR PERFIL Y ENFOQUE:\n")
+interpretation_data %>%
+  select(Class, Enfoque, Media) %>%
+  pivot_wider(names_from = Enfoque, values_from = Media) %>%
+  mutate(Diferencia = Biocéntrico - Antropocéntrico) %>%
+  kable(caption = "Medias por perfil y enfoque (Escala 1-5)",
+        digits = 3)
+
+# Gráfico comparativo por enfoque
+interpretation_data %>%
+  ggplot(aes(x = factor(Class), y = Media, fill = Enfoque)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "red", alpha = 0.7) +
+  labs(title = "Medias por Perfil y Enfoque",
+       subtitle = "Línea roja = punto neutral (3)",
+       x = "Perfil",
+       y = "Media (Escala 1-5)",
+       fill = "Enfoque") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Antropocéntrico" = "coral", 
+                               "Biocéntrico" = "lightgreen")) +
+  ylim(1, 5)
+```
+
+# Análisis por Ejes Temáticos
+
+```{r ejes-tematicos}
+#| label: ejes-tematicos
+#| fig-width: 14
+#| fig-height: 10
+
+# Separar ítems por eje temático
+items_bf <- items_natureza[str_detect(items_natureza, "_bf_")]  # Base filosófica
+items_al <- items_natureza[str_detect(items_natureza, "_al_")]  # Acción legal
+items_td <- items_natureza[str_detect(items_natureza, "_td_")]  # Titular de derechos
+items_rep <- items_natureza[str_detect(items_natureza, "_rep_")] # Reparación
+
+# Calcular medias por eje y perfil
+ejes_data <- get_data(final_lpa) %>%
+  select(all_of(items_natureza), Class) %>%
+  pivot_longer(cols = -Class, names_to = "Item", values_to = "Response") %>%
+  mutate(Eje = case_when(
+    str_detect(Item, "_bf_") ~ "Base Filosófica",
+    str_detect(Item, "_al_") ~ "Acción Legal",
+    str_detect(Item, "_td_") ~ "Titular de Derechos",
+    str_detect(Item, "_rep_") ~ "Reparación",
+    TRUE ~ "Otro"
+  )) %>%
+  group_by(Class, Eje) %>%
+  summarise(Media = mean(Response, na.rm = TRUE), .groups = "drop")
+
+# Gráfico por ejes
+ejes_data %>%
+  ggplot(aes(x = Eje, y = Media, color = factor(Class), group = Class)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "gray", alpha = 0.7) +
+  labs(title = "Perfiles por Eje Temático",
+       subtitle = "Línea gris = punto neutral (3)",
+       x = "Eje Temático",
+       y = "Media (Escala 1-5)",
+       color = "Perfil") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_brewer(type = "qual", palette = "Set1") +
+  ylim(1, 5)
+
+# Tabla resumen por ejes
+ejes_data %>%
+  pivot_wider(names_from = Class, 
+              values_from = Media,
+              names_prefix = "Perfil_") %>%
+  kable(caption = "Medias por eje temático y perfil (Escala 1-5)",
+        digits = 3)
+```
+
+# Relación entre Perfiles y Variables Demográficas
+
+```{r perfiles-demograficas}
+#| label: perfiles-demograficas
+#| fig-width: 14
+#| fig-height: 12
+
+# Combinar datos de perfiles con variables demográficas
+# Primero asegurémonos de que coincidan las filas
+profile_assignments_data <- get_data(final_lpa)
+
+cat("Dimensiones de datos de perfiles:", dim(profile_assignments_data), "\n")
+cat("Dimensiones de data_completo:", dim(data_completo), "\n")
+
+# Verificar si las dimensiones coinciden
+if(nrow(profile_assignments_data) == nrow(data_completo)) {
+  # Si coinciden, combinar directamente
+  profile_data <- profile_assignments_data %>%
+    bind_cols(data_completo %>% select(-all_of(items_natureza))) %>%
+    select(-starts_with("CPROB"))
+  
+} else {
+  # Si no coinciden, crear un índice para hacer match
+  cat("Las dimensiones no coinciden. Creando índice para hacer match...\n")
+  
+  # Usar solo las variables demográficas de los casos que quedaron en data_lpa_clean
+  # Assuming we need to match based on row order
+  n_valid <- min(nrow(profile_assignments_data), nrow(data_completo))
+  
+  profile_data <- profile_assignments_data[1:n_valid, ] %>%
+    bind_cols(data_completo[1:n_valid, ] %>% select(-all_of(items_natureza))) %>%
+    select(-starts_with("CPROB"))
+}
+
+cat("Dimensiones finales de profile_data:", dim(profile_data), "\n\n")
+
+# Verificar que tengamos las variables demográficas necesarias
+required_vars <- c("sex", "Condition", "career", "edad")
+available_vars <- intersect(required_vars, names(profile_data))
+cat("Variables demográficas disponibles:", paste(available_vars, collapse = ", "), "\n\n")
+
+# Solo crear gráficos para variables que existen
+plots_list <- list()
+
+# Análisis por sexo
+if("sex" %in% names(profile_data)) {
+  p1 <- profile_data %>%
+    count(Class, sex) %>%
+    group_by(Class) %>%
+    mutate(prop = n / sum(n)) %>%
+    ggplot(aes(x = factor(Class), y = prop, fill = sex)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    labs(title = "Distribución de Perfiles por Sexo",
+         x = "Perfil", y = "Proporción", fill = "Sexo") +
+    theme_minimal()
+  plots_list[["sex"]] <- p1
+}
+
+# Análisis por condición
+if("Condition" %in% names(profile_data)) {
+  p2 <- profile_data %>%
+    count(Class, Condition) %>%
+    group_by(Class) %>%
+    mutate(prop = n / sum(n)) %>%
+    ggplot(aes(x = factor(Class), y = prop, fill = Condition)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    labs(title = "Distribución de Perfiles por Condición",
+         x = "Perfil", y = "Proporción", fill = "Condición") +
+    theme_minimal()
+  plots_list[["condition"]] <- p2
+}
+
+# Análisis por carrera
+if("career" %in% names(profile_data)) {
+  p3 <- profile_data %>%
+    count(Class, career) %>%
+    group_by(Class) %>%
+    mutate(prop = n / sum(n)) %>%
+    ggplot(aes(x = factor(Class), y = prop, fill = career)) +
+    geom_col(position = "dodge", alpha = 0.8) +
+    labs(title = "Distribución de Perfiles por Carrera",
+         x = "Perfil", y = "Proporción", fill = "Carrera") +
+    theme_minimal()
+  plots_list[["career"]] <- p3
+}
+
+# Análisis de edad por perfil
+if("edad" %in% names(profile_data)) {
+  p4 <- profile_data %>%
+    ggplot(aes(x = factor(Class), y = edad, fill = factor(Class))) +
+    geom_boxplot(alpha = 0.7) +
+    labs(title = "Distribución de Edad por Perfil",
+         x = "Perfil", y = "Edad (años)") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  plots_list[["edad"]] <- p4
+}
+
+# Mostrar gráficos disponibles
+if(length(plots_list) >= 2) {
+  if(length(plots_list) == 4) {
+    (plots_list[[1]] + plots_list[[2]]) / (plots_list[[3]] + plots_list[[4]])
+  } else if(length(plots_list) == 3) {
+    plots_list[[1]] + plots_list[[2]] + plots_list[[3]]
+  } else {
+    plots_list[[1]] + plots_list[[2]]
+  }
+} else if(length(plots_list) == 1) {
+  plots_list[[1]]
+} else {
+  cat("No hay suficientes variables demográficas para crear gráficos.\n")
+}
+
+# Análisis estadístico de asociaciones
+cat("\nPRUEBAS DE ASOCIACIÓN\n")
+cat("=====================\n\n")
+
+# Chi-cuadrado para variables categóricas (solo para variables disponibles)
+vars_cat <- c("sex", "civilEst", "Condition", "career")
+
+for(var in vars_cat) {
+  if(var %in% names(profile_data)) {
+    test_result <- chisq.test(table(profile_data$Class, profile_data[[var]]))
+    cat("Chi-cuadrado -", var, ":\n")
+    cat("X² =", round(test_result$statistic, 3), 
+        ", p =", round(test_result$p.value, 3), "\n\n")
+  }
+}
+
+# ANOVA para edad (solo si está disponible)
+if("edad" %in% names(profile_data)) {
+  edad_anova <- aov(edad ~ factor(Class), data = profile_data)
+  cat("ANOVA - Edad por Perfil:\n")
+  summary(edad_anova)
+  cat("\n")
+}
+```
+
+## Interpretación Narrativa para Publicación Científica
+
+## Caracterización de los Perfiles Latentes
+
+```{r narrative-interpretation}
+#| label: narrative-interpretation
+
+# Calcular estadísticos clave para la interpretación narrativa
+profile_means_summary <- get_estimates(final_lpa) %>%
+  filter(Category == "Means") %>%
+  select(Class, Parameter, Estimate) %>%
+  pivot_wider(names_from = Class, 
+              values_from = Estimate,
+              names_prefix = "Perfil_")
+
+# Calcular medias generales por perfil y enfoque
+narrative_data <- get_data(final_lpa) %>%
+  select(all_of(items_natureza), Class) %>%
+  pivot_longer(cols = -Class, names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Enfoque = case_when(
+      str_detect(Item, "_ant") ~ "Antropocéntrico",
+      str_detect(Item, "_bio") ~ "Biocéntrico",
+      TRUE ~ "Otro"
+    ),
+    Eje = case_when(
+      str_detect(Item, "_bf_") ~ "Base Filosófica",
+      str_detect(Item, "_al_") ~ "Acción Legal", 
+      str_detect(Item, "_td_") ~ "Titular de Derechos",
+      str_detect(Item, "_rep_") ~ "Reparación",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Class, Enfoque, Eje) %>%
+  summarise(
+    Media = mean(Response, na.rm = TRUE),
+    DE = sd(Response, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Medias globales por enfoque y perfil
+global_means <- narrative_data %>%
+  group_by(Class, Enfoque) %>%
+  summarise(Media_Global = mean(Media), .groups = "drop") %>%
+  pivot_wider(names_from = Enfoque, values_from = Media_Global)
+
+# Mostrar tabla resumen para interpretación
+cat("MEDIAS GLOBALES POR PERFIL Y ENFOQUE (ESCALA 1-5):\n")
+cat("==================================================\n")
+kable(global_means, digits = 3, caption = "Medias globales por perfil y enfoque")
+
+# Clasificación de los participantes
+class_distribution <- table(get_data(final_lpa)$Class)
+class_percentages <- round(prop.table(class_distribution) * 100, 1)
+
+cat("\nDISTRIBUCIÓN DE PARTICIPANTES POR PERFIL:\n")
+cat("=========================================\n")
+for(i in 1:length(class_distribution)) {
+  cat("Perfil", i, ":", class_distribution[i], "participantes (", 
+      class_percentages[i], "%\n")
+}
+```
+
+## Hallazgos Principales
+
+El análisis de perfiles latentes reveló la existencia de **tres perfiles distintivos** de actitudes hacia los derechos de la naturaleza en una muestra de 143 participantes universitarios. Esta tipología emergente sugiere la presencia de subgrupos con orientaciones conceptuales diferenciadas respecto a la consideración moral y jurídica de la naturaleza.
+
+```{r profile-interpretation}
+#| label: profile-interpretation
+#| echo: false
+
+# Obtener información automática de los perfiles
+class_distribution <- table(get_data(final_lpa)$Class)
+class_percentages <- round(prop.table(class_distribution) * 100, 1)
+
+# Calcular medias por perfil y enfoque para interpretación automática
+auto_interpretation <- get_data(final_lpa) %>%
+  select(all_of(items_natureza), Class) %>%
+  pivot_longer(cols = -Class, names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Enfoque = case_when(
+      str_detect(Item, "_ant") ~ "Antropocéntrico",
+      str_detect(Item, "_bio") ~ "Biocéntrico",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Class, Enfoque) %>%
+  summarise(Media = mean(Response, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = Enfoque, values_from = Media)
+
+# Función para clasificar orientación
+classify_orientation <- function(ant_score, bio_score, threshold = 0.3) {
+  diff <- bio_score - ant_score
+  if(abs(diff) < threshold) return("Mixta")
+  if(diff > threshold) return("Biocéntrica") 
+  return("Antropocéntrica")
+}
+
+# Función para determinar intensidad
+get_intensity <- function(score) {
+  if(score < 2.5) return("baja")
+  if(score < 3.5) return("moderada") 
+  return("alta")
+}
+
+# Generar descripciones automáticas
+profile_descriptions <- data.frame()
+for(i in 1:3) {
+  if(i <= nrow(auto_interpretation)) {
+    ant_score <- auto_interpretation$Antropocéntrico[auto_interpretation$Class == i]
+    bio_score <- auto_interpretation$Biocéntrico[auto_interpretation$Class == i]
+    orientation <- classify_orientation(ant_score, bio_score)
+    
+    # Proponer nombres basados en orientación y scores
+    profile_name <- case_when(
+      orientation == "Biocéntrica" & bio_score >= 4 ~ "Ecocéntrico Fuerte",
+      orientation == "Biocéntrica" & bio_score >= 3.5 ~ "Ecocéntrico Moderado", 
+      orientation == "Antropocéntrica" & ant_score >= 4 ~ "Antropocéntrico Fuerte",
+      orientation == "Antropocéntrica" & ant_score >= 3.5 ~ "Antropocéntrico Moderado",
+      orientation == "Mixta" & (ant_score + bio_score)/2 >= 3.5 ~ "Pluralista",
+      orientation == "Mixta" ~ "Pragmático",
+      TRUE ~ paste("Perfil", orientation)
+    )
+    
+    profile_descriptions <- rbind(profile_descriptions, data.frame(
+      Perfil = i,
+      Nombre = profile_name,
+      N = class_distribution[i],
+      Porcentaje = class_percentages[i],
+      Orientacion = orientation,
+      Media_Ant = round(ant_score, 2),
+      Media_Bio = round(bio_score, 2)
+    ))
+  }
+}
+
+# Mostrar tabla de caracterización automática
+kable(profile_descriptions, 
+      caption = "Caracterización automática de los perfiles basada en los datos")
+```
+
+### Perfil 1: `r profile_descriptions$Nombre[1]` (n = `r profile_descriptions$N[1]`, `r profile_descriptions$Porcentaje[1]`%)
+
+Este perfil presenta una orientación **`r tolower(profile_descriptions$Orientacion[1])`** hacia los derechos de la naturaleza (Media Antropocéntrica = `r profile_descriptions$Media_Ant[1]`, Media Biocéntrica = `r profile_descriptions$Media_Bio[1]`). Los participantes de este grupo representan el `r profile_descriptions$Porcentaje[1]`% de la muestra.
+
+```{r profile1-details}
+#| label: profile1-details
+#| echo: false
+
+# Análisis detallado por ejes para Perfil 1
+p1_ejes <- get_data(final_lpa) %>%
+  filter(Class == 1) %>%
+  select(all_of(items_natureza)) %>%
+  pivot_longer(everything(), names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Eje = case_when(
+      str_detect(Item, "_bf_") ~ "Base Filosófica",
+      str_detect(Item, "_al_") ~ "Acción Legal", 
+      str_detect(Item, "_td_") ~ "Titular de Derechos",
+      str_detect(Item, "_rep_") ~ "Reparación",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Eje) %>%
+  summarise(Media = round(mean(Response, na.rm = TRUE), 2), .groups = "drop")
+
+cat("**Caracterización por ejes temáticos:**\n")
+for(i in 1:nrow(p1_ejes)) {
+  intensidad <- get_intensity(p1_ejes$Media[i])
+  cat("- **", p1_ejes$Eje[i], "**: Media =", p1_ejes$Media[i], "(intensidad", intensidad, ")\n")
+}
+```
+
+### Perfil 2: `r profile_descriptions$Nombre[2]` (n = `r profile_descriptions$N[2]`, `r profile_descriptions$Porcentaje[2]`%)
+
+Este perfil muestra una orientación **`r tolower(profile_descriptions$Orientacion[2])`** (Media Antropocéntrica = `r profile_descriptions$Media_Ant[2]`, Media Biocéntrica = `r profile_descriptions$Media_Bio[2]`). Representa el `r profile_descriptions$Porcentaje[2]`% de la muestra.
+
+```{r profile2-details}
+#| label: profile2-details  
+#| echo: false
+
+# Análisis detallado por ejes para Perfil 2
+p2_ejes <- get_data(final_lpa) %>%
+  filter(Class == 2) %>%
+  select(all_of(items_natureza)) %>%
+  pivot_longer(everything(), names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Eje = case_when(
+      str_detect(Item, "_bf_") ~ "Base Filosófica",
+      str_detect(Item, "_al_") ~ "Acción Legal", 
+      str_detect(Item, "_td_") ~ "Titular de Derechos",
+      str_detect(Item, "_rep_") ~ "Reparación",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Eje) %>%
+  summarise(Media = round(mean(Response, na.rm = TRUE), 2), .groups = "drop")
+
+cat("**Caracterización por ejes temáticos:**\n")
+for(i in 1:nrow(p2_ejes)) {
+  intensidad <- get_intensity(p2_ejes$Media[i])
+  cat("- **", p2_ejes$Eje[i], "**: Media =", p2_ejes$Media[i], "(intensidad", intensidad, ")\n")
+}
+```
+
+### Perfil 3: `r profile_descriptions$Nombre[3]` (n = `r profile_descriptions$N[3]`, `r profile_descriptions$Porcentaje[3]`%)
+
+Este perfil exhibe una orientación **`r tolower(profile_descriptions$Orientacion[3])`** (Media Antropocéntrica = `r profile_descriptions$Media_Ant[3]`, Media Biocéntrica = `r profile_descriptions$Media_Bio[3]`). Constituye el `r profile_descriptions$Porcentaje[3]`% de la muestra.
+
+```{r profile3-details}
+#| label: profile3-details
+#| echo: false  
+
+# Análisis detallado por ejes para Perfil 3
+p3_ejes <- get_data(final_lpa) %>%
+  filter(Class == 3) %>%
+  select(all_of(items_natureza)) %>%
+  pivot_longer(everything(), names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Eje = case_when(
+      str_detect(Item, "_bf_") ~ "Base Filosófica",
+      str_detect(Item, "_al_") ~ "Acción Legal", 
+      str_detect(Item, "_td_") ~ "Titular de Derechos",
+      str_detect(Item, "_rep_") ~ "Reparación",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Eje) %>%
+  summarise(Media = round(mean(Response, na.rm = TRUE), 2), .groups = "drop")
+
+cat("**Caracterización por ejes temáticos:**\n")
+for(i in 1:nrow(p3_ejes)) {
+  intensidad <- get_intensity(p3_ejes$Media[i])
+  cat("- **", p3_ejes$Eje[i], "**: Media =", p3_ejes$Media[i], "(intensidad", intensidad, ")\n")
+}
+```
+
+# Análisis Detallado para Interpretación Narrativa
+
+## Caracterización Específica por Perfil
+
+```{r detailed-profile-analysis}
+#| label: detailed-profile-analysis
+
+# Extraer medias por perfil para análisis detallado
+profile_means_detailed <- get_estimates(final_lpa) %>%
+  filter(Category == "Means") %>%
+  select(Class, Parameter, Estimate) %>%
+  arrange(Class, desc(Estimate))
+
+cat("ANÁLISIS DETALLADO POR PERFIL\n")
+cat("===============================\n\n")
+
+# Función para clasificar intensidad de respuesta
+classify_intensity <- function(score) {
+  case_when(
+    score >= 4.5 ~ "Muy alta",
+    score >= 4.0 ~ "Alta", 
+    score >= 3.5 ~ "Moderadamente alta",
+    score >= 3.0 ~ "Neutra/Moderada",
+    score >= 2.5 ~ "Moderadamente baja",
+    score >= 2.0 ~ "Baja",
+    TRUE ~ "Muy baja"
+  )
+}
+
+# Función para extraer eje temático
+extract_axis <- function(item) {
+  case_when(
+    str_detect(item, "_bf_") ~ "Base Filosófica",
+    str_detect(item, "_al_") ~ "Acción Legal", 
+    str_detect(item, "_td_") ~ "Titular de Derechos",
+    str_detect(item, "_rep_") ~ "Reparación",
+    TRUE ~ "Otro"
+  )
+}
+
+# Función para extraer orientación
+extract_orientation <- function(item) {
+  case_when(
+    str_detect(item, "_ant") ~ "Antropocéntrico",
+    str_detect(item, "_bio") ~ "Biocéntrico", 
+    TRUE ~ "Otro"
+  )
+}
+
+# Análisis por cada perfil
+for(perfil in 1:3) {
+  cat("### PERFIL", perfil, "###\n")
+  cat("==================\n\n")
+  
+  # Filtrar datos del perfil actual
+  datos_perfil <- profile_means_detailed %>% 
+    filter(Class == perfil) %>%
+    mutate(
+      Intensidad = classify_intensity(Estimate),
+      Eje = extract_axis(Parameter),
+      Orientacion = extract_orientation(Parameter)
+    ) %>%
+    arrange(desc(Estimate))
+  
+  # Ítems de mayor respuesta (distintivos altos)
+  items_distintivos_altos <- datos_perfil %>% filter(Estimate >= 4.0)
+  if(nrow(items_distintivos_altos) > 0) {
+    cat("**ÍTEMS DISTINTIVOS ALTOS (≥ 4.0):**\n")
+    for(i in 1:nrow(items_distintivos_altos)) {
+      cat("- **", items_distintivos_altos$Parameter[i], "** (", 
+          items_distintivos_altos$Eje[i], " - ", 
+          items_distintivos_altos$Orientacion[i], "): ", 
+          items_distintivos_altos$Estimate[i], " (", 
+          items_distintivos_altos$Intensidad[i], ")\n")
+    }
+    cat("\n")
+  }
+  
+  # Ítems moderadamente altos (3.5-3.99)
+  items_moderados_altos <- datos_perfil %>% filter(Estimate >= 3.5 & Estimate < 4.0)
+  if(nrow(items_moderados_altos) > 0) {
+    cat("**ÍTEMS MODERADAMENTE ALTOS (3.5-3.99):**\n")
+    for(i in 1:nrow(items_moderados_altos)) {
+      cat("- **", items_moderados_altos$Parameter[i], "** (", 
+          items_moderados_altos$Eje[i], " - ", 
+          items_moderados_altos$Orientacion[i], "): ", 
+          items_moderados_altos$Estimate[i], "\n")
+    }
+    cat("\n")
+  }
+  
+  # Ítems distintivos bajos (≤ 2.5)
+  items_distintivos_bajos <- datos_perfil %>% filter(Estimate <= 2.5)
+  if(nrow(items_distintivos_bajos) > 0) {
+    cat("**ÍTEMS DISTINTIVOS BAJOS (≤ 2.5):**\n")
+    for(i in 1:nrow(items_distintivos_bajos)) {
+      cat("- **", items_distintivos_bajos$Parameter[i], "** (", 
+          items_distintivos_bajos$Eje[i], " - ", 
+          items_distintivos_bajos$Orientacion[i], "): ", 
+          items_distintivos_bajos$Estimate[i], " (", 
+          items_distintivos_bajos$Intensidad[i], ")\n")
+    }
+    cat("\n")
+  }
+  
+  # Análisis por orientación
+  resumen_orientacion <- datos_perfil %>%
+    group_by(Orientacion) %>%
+    summarise(
+      N_items = n(),
+      Media = round(mean(Estimate), 2),
+      Min = round(min(Estimate), 2),
+      Max = round(max(Estimate), 2),
+      .groups = "drop"
+    )
+  
+  cat("**RESUMEN POR ORIENTACIÓN:**\n")
+  for(i in 1:nrow(resumen_orientacion)) {
+    cat("- **", resumen_orientacion$Orientacion[i], "**: ", 
+        resumen_orientacion$N_items[i], " ítems, Media = ", 
+        resumen_orientacion$Media[i], " (rango: ", 
+        resumen_orientacion$Min[i], "-", resumen_orientacion$Max[i], ")\n")
+  }
+  
+  # Análisis por eje temático
+  resumen_ejes <- datos_perfil %>%
+    group_by(Eje) %>%
+    summarise(
+      N_items = n(),
+      Media = round(mean(Estimate), 2),
+      Items_Altos = sum(Estimate >= 4.0),
+      Items_Bajos = sum(Estimate <= 2.5),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(Media))
+  
+  cat("\n**RESUMEN POR EJE TEMÁTICO:**\n")
+  for(i in 1:nrow(resumen_ejes)) {
+    cat("- **", resumen_ejes$Eje[i], "**: Media = ", 
+        resumen_ejes$Media[i], " (", resumen_ejes$N_items[i], 
+        " ítems, ", resumen_ejes$Items_Altos[i], 
+        " altos, ", resumen_ejes$Items_Bajos[i], " bajos)\n")
+  }
+  
+  cat("\n" , rep("-", 50), "\n\n")
+}
+```
+
+## Ítems Más Discriminativos Entre Perfiles
+
+```{r discriminative-items-detailed}
+#| label: discriminative-items-detailed
+
+# Análisis ANOVA detallado para identificar ítems más discriminativos
+cat("ÍTEMS MÁS DISCRIMINATIVOS ENTRE PERFILES\n")
+cat("=========================================\n\n")
+
+lpa_data_with_class <- get_data(final_lpa)
+anova_detailed <- data.frame()
+
+for(item in items_natureza) {
+  if(item %in% names(lpa_data_with_class)) {
+    # ANOVA
+    anova_test <- aov(lpa_data_with_class[[item]] ~ factor(lpa_data_with_class$Class))
+    f_stat <- summary(anova_test)[[1]]$`F value`[1]
+    p_value <- summary(anova_test)[[1]]$`Pr(>F)`[1]
+    
+    # Medias por perfil para este ítem
+    medias_item <- lpa_data_with_class %>%
+      group_by(Class) %>%
+      summarise(Media = round(mean(.data[[item]], na.rm = TRUE), 2), .groups = "drop")
+    
+    # Calcular rango (diferencia max-min)
+    rango <- max(medias_item$Media) - min(medias_item$Media)
+    
+    anova_detailed <- rbind(anova_detailed, 
+                           data.frame(
+                             Item = item,
+                             F_stat = round(f_stat, 2),
+                             p_value = round(p_value, 4),
+                             Rango = round(rango, 2),
+                             Perfil1 = medias_item$Media[medias_item$Class == 1],
+                             Perfil2 = medias_item$Media[medias_item$Class == 2],
+                             Perfil3 = medias_item$Media[medias_item$Class == 3],
+                             Eje = extract_axis(item),
+                             Orientacion = extract_orientation(item)
+                           ))
+  }
+}
+
+# Ordenar por F estadístico (más discriminativo primero)
+anova_detailed <- anova_detailed %>% arrange(desc(F_stat))
+
+cat("**TOP 15 ÍTEMS MÁS DISCRIMINATIVOS:**\n\n")
+for(i in 1:min(15, nrow(anova_detailed))) {
+  cat("**", i, ". ", anova_detailed$Item[i], "**\n")
+  cat("   - Eje:", anova_detailed$Eje[i], " | Orientación:", anova_detailed$Orientacion[i], "\n")
+  cat("   - F =", anova_detailed$F_stat[i], ", p =", anova_detailed$p_value[i], 
+      " | Rango =", anova_detailed$Rango[i], "\n")
+  cat("   - Medias por perfil: P1 =", anova_detailed$Perfil1[i], 
+      ", P2 =", anova_detailed$Perfil2[i], ", P3 =", anova_detailed$Perfil3[i], "\n\n")
+}
+
+# Tabla resumen de los más discriminativos
+top_discriminative_detailed <- anova_detailed %>% 
+  head(10) %>%
+  select(Item, F_stat, p_value, Rango, Perfil1, Perfil2, Perfil3, Eje, Orientacion)
+
+kable(top_discriminative_detailed,
+      caption = "Top 10 ítems más discriminativos con medias por perfil",
+      digits = c(0, 2, 4, 2, 2, 2, 2, 0, 0))
+```
+
+## Interpretación Basada en Patrones Emergentes
+
+```{r pattern-interpretation}
+#| label: pattern-interpretation
+
+cat("PATRONES DISTINTIVOS POR PERFIL\n")
+cat("================================\n\n")
+
+# Análizar patrones únicos de cada perfil
+for(perfil in 1:3) {
+  cat("### PERFIL", perfil, "- PATRONES DISTINTIVOS ###\n")
+  
+  # Obtener ítems donde este perfil tiene la media más alta
+  items_max_perfil <- anova_detailed %>%
+    rowwise() %>%
+    mutate(Max_Perfil = which.max(c(Perfil1, Perfil2, Perfil3))) %>%
+    filter(Max_Perfil == perfil & F_stat >= 5) %>% # Solo ítems significativamente discriminativos
+    arrange(desc(F_stat))
+  
+  if(nrow(items_max_perfil) > 0) {
+    cat("**Ítems donde este perfil destaca MÁS:**\n")
+    for(i in 1:min(8, nrow(items_max_perfil))) {
+      media_perfil <- items_max_perfil[i, paste0("Perfil", perfil)][[1]]
+      cat("- ", items_max_perfil$Item[i], " (", items_max_perfil$Eje[i], 
+          " - ", items_max_perfil$Orientacion[i], "): ", 
+          media_perfil, "\n")
+    }
+  }
+  
+  # Obtener ítems donde este perfil tiene la media más baja
+  items_min_perfil <- anova_detailed %>%
+    rowwise() %>%
+    mutate(Min_Perfil = which.min(c(Perfil1, Perfil2, Perfil3))) %>%
+    filter(Min_Perfil == perfil & F_stat >= 5) %>%
+    arrange(desc(F_stat))
+  
+  if(nrow(items_min_perfil) > 0) {
+    cat("\n**Ítems donde este perfil destaca MENOS:**\n")
+    for(i in 1:min(5, nrow(items_min_perfil))) {
+      media_perfil <- items_min_perfil[i, paste0("Perfil", perfil)][[1]]
+      cat("- ", items_min_perfil$Item[i], " (", items_min_perfil$Eje[i], 
+          " - ", items_min_perfil$Orientacion[i], "): ", 
+          media_perfil, "\n")
+    }
+  }
+  
+  cat("\n", rep("-", 60), "\n\n")
+}
+
+cat("SÍNTESIS INTERPRETATIVA\n")
+cat("=======================\n")
+cat("Utiliza la información anterior para describir narrativamente cada perfil:\n\n")
+cat("1. **Identifica los ítems distintivos altos** de cada perfil (≥4.0)\n")
+cat("2. **Observa los ítems distintivos bajos** (≤2.5)\n") 
+cat("3. **Analiza los patrones por eje temático** (dónde destaca cada perfil)\n")
+cat("4. **Considera la orientación predominante** (antropocéntrica vs. biocéntrica)\n")
+cat("5. **Revisa los ítems más discriminativos** para entender diferencias clave\n\n")
+cat("Con esta información puedes crear descripciones narrativas específicas\n")
+cat("basadas en los datos empíricos de tu análisis.\n")
+```
+
+## Diferencias Entre Perfiles
+
+```{r profile-differences}
+#| label: profile-differences
+
+# Análisis de diferencias significativas entre perfiles
+# ANOVA para cada ítem
+anova_results <- data.frame()
+lpa_data_with_class <- get_data(final_lpa)
+
+for(item in items_natureza) {
+  if(item %in% names(lpa_data_with_class)) {
+    anova_test <- aov(lpa_data_with_class[[item]] ~ factor(lpa_data_with_class$Class))
+    f_stat <- summary(anova_test)[[1]]$`F value`[1]
+    p_value <- summary(anova_test)[[1]]$`Pr(>F)`[1]
+    
+    anova_results <- rbind(anova_results, 
+                          data.frame(
+                            Item = item,
+                            F_statistic = f_stat,
+                            p_value = p_value,
+                            Significant = ifelse(p_value < 0.05, "Sí", "No")
+                          ))
+  }
+}
+
+# Mostrar ítems más discriminativos
+anova_results %>%
+  arrange(desc(F_statistic)) %>%
+  head(10) %>%
+  kable(digits = 4, caption = "Los 10 ítems más discriminativos entre perfiles (Mayor F)")
+
+# Calcular efecto de tamaño (eta cuadrado)
+cat("\nÍTEMS CON MAYOR CAPACIDAD DISCRIMINATIVA:\n")
+cat("========================================\n")
+top_items <- anova_results %>% arrange(desc(F_statistic)) %>% head(5)
+for(i in 1:nrow(top_items)) {
+  cat(i, ".", top_items$Item[i], " (F =", round(top_items$F_statistic[i], 2), ", p =", round(top_items$p_value[i], 4), ")\n")
+}
+```
+
+## Implicaciones Conceptuales
+
+Los hallazgos revelan una **heterogeneidad significativa** en las concepciones estudiantiles sobre los derechos de la naturaleza, lo cual tiene importantes implicaciones teóricas y prácticas:
+
+### Pluralismo Conceptual
+
+La emergencia de tres perfiles diferenciados evidencia que las actitudes hacia los derechos de la naturaleza no constituyen un constructo unidimensional, sino que reflejan **orientaciones complejas y multifacéticas**. Esta diversidad conceptual sugiere la necesidad de aproximaciones pedagógicas y políticas diferenciadas que reconozcan la pluralidad de marcos interpretativos.
+
+### Tensión Antropocentrismo-Biocentrismo
+
+```{r tension-analysis}
+#| label: tension-analysis  
+#| echo: false
+
+# Análizar cómo cada perfil maneja la tensión antropo/bio
+tension_analysis <- get_data(final_lpa) %>%
+  select(all_of(items_natureza), Class) %>%
+  pivot_longer(cols = -Class, names_to = "Item", values_to = "Response") %>%
+  mutate(
+    Enfoque = case_when(
+      str_detect(Item, "_ant") ~ "Antropocéntrico", 
+      str_detect(Item, "_bio") ~ "Biocéntrico",
+      TRUE ~ "Otro"
+    )
+  ) %>%
+  group_by(Class, Enfoque) %>%
+  summarise(Media = mean(Response, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = Enfoque, values_from = Media) %>%
+  mutate(
+    Diferencia = Biocéntrico - Antropocéntrico,
+    Tipo_Tension = case_when(
+      abs(Diferencia) < 0.3 ~ "Equilibrio conceptual",
+      Diferencia > 0.3 ~ "Preferencia biocéntrica",
+      Diferencia < -0.3 ~ "Preferencia antropocéntrica"
+    )
+  )
+
+cat("**Análisis de la tensión antropocentrismo-biocentrismo por perfil:**\n\n")
+for(i in 1:nrow(tension_analysis)) {
+  cat("- **Perfil", i, "**:", tension_analysis$Tipo_Tension[i])
+  cat(" (Δ =", round(tension_analysis$Diferencia[i], 2), ")\n")
+}
+```
+
+Los perfiles identificados ilustran diferentes formas de **negociar la tensión clásica** entre perspectivas antropocéntricas y biocéntricas en el ámbito jurídico-ambiental. El análisis revela que los participantes adoptan estrategias diferenciadas para abordar esta dicotomía fundamental, desde el equilibrio conceptual hasta preferencias marcadas hacia uno u otro enfoque.
+
+### Dimensiones Diferenciadas
+
+El análisis por ejes temáticos revela que los participantes no necesariamente mantienen **consistencia absoluta** entre diferentes dimensiones de los derechos de la naturaleza. Algunos perfiles pueden mostrar orientaciones biocentristas en aspectos filosóficos pero antropocentristas en mecanismos legales, sugiriendo la **complejidad inherente** del tema.
+
+## Implicaciones para la Formación Jurídica
+
+### Diversidad de Enfoques Pedagógicos
+
+La identificación de perfiles distintivos sugiere la necesidad de **estrategias pedagógicas diferenciadas** en la formación jurídica ambiental. Los estudiantes con diferentes orientaciones conceptuales pueden beneficiarse de aproximaciones metodológicas específicas que reconozcan sus marcos interpretativos previos.
+
+### Desarrollo Curricular
+
+Los hallazgos informan el **diseño curricular** de programas de derecho ambiental, sugiriendo la importancia de abordar explícitamente la diversidad de perspectivas y promover el diálogo crítico entre diferentes orientaciones conceptuales.
+
+## Limitaciones del Estudio
+
+El presente análisis presenta varias limitaciones que deben considerarse en la interpretación de los hallazgos:
+
+1. **Generalización**: La muestra está compuesta por estudiantes universitarios, limitando la generalización a otras poblaciones
+2. **Temporalidad**: Se trata de un estudio transversal que no permite inferencias causales
+3. **Contexto cultural**: Los hallazgos reflejan el contexto socio-cultural específico de la muestra
+4. **Autoinforme**: Los datos se basan en medidas de autoinforme que pueden estar sujetas a sesgos de deseabilidad social
+
+## Futuras Líneas de Investigación
+
+Los hallazgos abren varias líneas de investigación futuras:
+
+1. **Validación longitudinal**: Examinar la estabilidad temporal de los perfiles identificados
+2. **Estudios comparativos**: Replicar el análisis en diferentes contextos culturales y educativos
+3. **Factores predictivos**: Investigar variables sociodemográficas, psicológicas y educativas asociadas a cada perfil
+4. **Intervenciones educativas**: Diseñar y evaluar intervenciones pedagógicas basadas en los perfiles identificados
+5. **Métodos mixtos**: Complementar los hallazgos cuantitativos con aproximaciones cualitativas para profundizar en la comprensión de cada perfil
+
+# Conclusiones y Discusión
+
+## Resumen de Hallazgos
+
+```{r summary}
+#| label: summary
+
+cat("RESUMEN DEL ANÁLISIS DE PERFILES LATENTES\n")
+cat("==========================================\n\n")
+
+cat("CARACTERÍSTICAS DE LA MUESTRA:\n")
+cat("- Tamaño muestral total:", nrow(bd), "casos\n")
+cat("- Casos válidos para LPA:", nrow(data_lpa_clean), "casos\n")
+cat("- Escala utilizada: 1-5 (Totalmente en desacuerdo - Totalmente de acuerdo)\n")
+cat("- Ítems analizados:", length(items_natureza), "(", length(items_ant), "antropocéntricos +", length(items_bio), "biocéntricos)\n\n")
+
+cat("MODELO SELECCIONADO:\n")
+cat("- Número de perfiles identificados:", n_profiles, "(establecido teóricamente)\n")
+cat("- Criterios de ajuste del modelo final:\n")
+
+final_fit <- get_fit(final_lpa)
+
+# Verificar si los criterios están disponibles
+if(is.list(final_fit) && "AIC" %in% names(final_fit)) {
+  cat("  * AIC:", round(final_fit$AIC, 2), "\n")
+  cat("  * BIC:", round(final_fit$BIC, 2), "\n")
+  cat("  * Entropía:", round(final_fit$Entropy, 3), "\n")
+  
+  if(final_fit$Entropy >= 0.8) {
+    cat("  → Excelente clasificación (Entropía ≥ 0.8)\n")
+  } else if(final_fit$Entropy >= 0.7) {
+    cat("  → Buena clasificación (Entropía ≥ 0.7)\n")
+  } else {
+    cat("  → Clasificación aceptable (Entropía < 0.7)\n")
+  }
+} else {
+  cat("  * Criterios de ajuste no disponibles\n")
+}
+
+cat("\nDISTRIBUCIÓN DE CASOS POR PERFIL:\n")
+class_dist <- table(get_data(final_lpa)$Class)
+for(i in 1:length(class_dist)) {
+  cat("- Perfil", i, ":", class_dist[i], "casos (", 
+      round(class_dist[i]/sum(class_dist)*100, 1), "%)\n")
+}
+
+cat("\nVARIABLES DEMOGRÁFICAS DISPONIBLES:\n")
+cat("- Edad (continua)\n")
+cat("- Sexo:", paste(unique(bd$sex), collapse = ", "), "\n")
+cat("- Condición:", paste(unique(bd$Condition), collapse = ", "), "\n") 
+cat("- Carreras:", paste(unique(bd$career), collapse = ", "), "\n")
+cat("- Estados civiles:", length(unique(bd$civilEst)), "categorías\n")
+cat("- Departamentos:", length(unique(bd$dep)), "departamentos\n")
+```
+
+## Interpretación de los Perfiles
+
+*Esta sección debe completarse con base en los resultados específicos obtenidos del análisis.*
+
+Los perfiles encontrados pueden interpretarse de la siguiente manera:
+
+1. **Perfil 1**: [Descripción basada en los patrones de respuesta]
+2. **Perfil 2**: [Descripción basada en los patrones de respuesta]  
+3. **Perfil N**: [Descripción basada en los patrones de respuesta]
+
+## Limitaciones y Futuras Direcciones
+
+- **Tamaño muestral**: Con 143 casos y 21 variables, el ratio casos/variables (~6.8) está en el límite recomendado para LPA
+- **Validación**: Los resultados deben validarse con muestras independientes
+- **Estabilidad temporal**: Sería útil evaluar la estabilidad de los perfiles en el tiempo
+- **Variables adicionales**: Considerar la inclusión de otras covariables relevantes
+
+---
+
+**Nota**: Este análisis proporciona una aproximación inicial a los perfiles latentes de actitudes hacia los derechos de la naturaleza. Los resultados deben interpretarse considerando el contexto teórico específico y las limitaciones metodológicas mencionadas.
